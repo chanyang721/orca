@@ -1,4 +1,5 @@
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
+import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import { cn } from '@/lib/utils'
 import { SettingsSwitchRow } from './SettingsFormControls'
@@ -27,11 +28,16 @@ export function AgentDashboardDockSetting({
         'Keep the board visible above your workspace, including when the sidebar is closed.'
       )}
       checked={settings.experimentalAgentDashboardDocked === true}
-      onChange={() =>
+      onChange={() => {
+        const docked = settings.experimentalAgentDashboardDocked === true
+        // Open the sidebar before its host can discard the undocked board.
+        if (docked) {
+          useAppStore.getState().setSidebarOpen(true)
+        }
         updateSettings({
-          experimentalAgentDashboardDocked: settings.experimentalAgentDashboardDocked !== true
+          experimentalAgentDashboardDocked: !docked
         })
-      }
+      }}
       className={cn('py-0', compact && '[&_[data-slot=label]]:text-xs [&_p]:text-[11px]')}
     />
   )

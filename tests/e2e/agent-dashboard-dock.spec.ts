@@ -150,3 +150,65 @@ test('docks the existing board above the workspace and keeps the terminal width'
   await expect(dock).toHaveCount(0)
   await expect(orcaPage.locator('[data-agent-dashboard-sheet]')).toBeVisible()
 })
+
+test('restores the dashboard across full-page navigation and undocking in settings', async ({
+  orcaPage
+}, testInfo) => {
+  await waitForSessionReady(orcaPage)
+  await waitForActiveWorktree(orcaPage)
+  await orcaPage.setViewportSize({ width: 1280, height: 900 })
+  await orcaPage.evaluate(async () => {
+    const store = window.__store!
+    await store.getState().updateSettings({
+      uiLanguage: 'en',
+      experimentalAgentDashboardPopout: true,
+      experimentalAgentDashboardMode: 'in-window',
+      experimentalAgentDashboardDocked: true
+    })
+    store.setState({ agentDashboardDrawerOpen: true, sidebarOpen: false })
+  })
+
+  const dock = orcaPage.getByRole('region', { name: 'Docked Agent Dashboard' })
+  await expect(dock).toBeVisible()
+  for (const view of ['activity', 'space'] as const) {
+    await orcaPage.evaluate((next) => {
+      const state = window.__store!.getState()
+      if (next === 'activity') {
+        state.openActivityPage()
+      } else {
+        state.openSpacePage()
+      }
+    }, view)
+    await expect(dock).toHaveCount(0)
+    await expect(orcaPage.locator('[data-terminal-workbench-container]')).toBeHidden()
+    await orcaPage.screenshot({
+      path: testInfo.outputPath(`${view}-without-dock.png`),
+      animations: 'disabled'
+    })
+    await orcaPage.evaluate((previous) => {
+      const state = window.__store!.getState()
+      if (previous === 'activity') {
+        state.closeActivityPage()
+      } else {
+        state.closeSpacePage()
+      }
+    }, view)
+    await expect(dock).toBeVisible()
+  }
+
+  await orcaPage.evaluate(() => window.__store!.getState().openSettingsPage())
+  await expect(dock).toHaveCount(0)
+  await orcaPage.getByPlaceholder('Search settings').fill('Dock above workspace')
+  const toggle = orcaPage.getByRole('switch', { name: 'Dock above workspace' })
+  await expect(toggle).toBeChecked()
+  await toggle.click()
+  await expect(toggle).not.toBeChecked()
+  await orcaPage.getByRole('button', { name: 'Back to app', exact: true }).click()
+  await expect(dock).toHaveCount(0)
+  const sheet = orcaPage.locator('[data-agent-dashboard-sheet]')
+  await expect(sheet.getByRole('heading', { name: 'Agents', exact: true, level: 1 })).toBeVisible()
+  await orcaPage.screenshot({
+    path: testInfo.outputPath('sidebar-restored-from-settings.png'),
+    animations: 'disabled'
+  })
+})

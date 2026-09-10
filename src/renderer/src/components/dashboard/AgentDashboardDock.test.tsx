@@ -102,4 +102,20 @@ describe('AgentDashboardDock', () => {
       expect(mocks.snapshot).not.toHaveBeenCalled()
     }
   )
+
+  it.each(['settings', 'activity', 'space'] as const)(
+    'hides on %s and restores the open dock when returning to the workspace',
+    async (activeView) => {
+      render(<AgentDashboardDock reserveTitlebarSpace={false} />)
+      await screen.findByRole('button', { name: 'Open agent' })
+      mocks.snapshot.mockClear()
+
+      act(() => useAppStore.setState({ activeView }))
+      expect(screen.queryByRole('region', { name: 'Docked Agent Dashboard' })).toBeNull()
+      expect(mocks.snapshot).not.toHaveBeenCalled()
+
+      act(() => useAppStore.setState({ activeView: 'terminal' }))
+      expect(await screen.findByRole('button', { name: 'Open agent' })).toBeTruthy()
+    }
+  )
 })

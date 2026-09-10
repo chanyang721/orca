@@ -115,12 +115,7 @@ export function AgentDashboardSettingsMenu({
               experimentalAgentDashboardMode: mode,
               experimentalAgentDashboardDocked: docked
             }}
-            updateSettings={(updates) => {
-              if (updates.experimentalAgentDashboardDocked === false) {
-                useAppStore.getState().setSidebarOpen(true)
-              }
-              void updateSettings(updates)
-            }}
+            updateSettings={updateSettings}
           />
         </div>
         <DropdownMenuSeparator />

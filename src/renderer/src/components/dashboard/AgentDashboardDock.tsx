@@ -24,7 +24,10 @@ export function AgentDashboardDock({
       s.settings.experimentalAgentDashboardMode !== 'popout' &&
       s.settings.experimentalAgentDashboardDocked === true &&
       s.agentDashboardDrawerOpen &&
-      s.activeView !== 'settings'
+      // Match the full-page navigation exclusions in useAppChromeLayout.
+      s.activeView !== 'settings' &&
+      s.activeView !== 'activity' &&
+      s.activeView !== 'space'
   )
   const setOpen = useAppStore((s) => s.setAgentDashboardDrawerOpen)
 
