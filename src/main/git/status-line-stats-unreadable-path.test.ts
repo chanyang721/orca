@@ -1,5 +1,5 @@
 // Windows sharing locks make `git diff --numstat` abort on one file; the other rows must still count.
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitStatusEntry } from '../../shared/git-status-types'
 
 const { gitExecFileAsyncMock } = vi.hoisted(() => ({ gitExecFileAsyncMock: vi.fn() }))
@@ -11,7 +11,12 @@ vi.mock('./runner', () => ({
   gitStreamStdout: vi.fn()
 }))
 
-import { attachLineStats, parseUnreadableNumstatPath } from './source-control/status-line-stats'
+import {
+  attachLineStats,
+  clearRememberedUnreadableNumstatPaths,
+  parseUnreadableNumstatPath
+} from './source-control/status-line-stats'
+import { GIT_STATUS_LINE_STATS_CACHE_MAX_AGE_MS } from '../../shared/git-status-line-stats-cache'
 
 const WORKTREE = '/repo'
 const LOCKED = 'data/app state.json'
@@ -35,6 +40,11 @@ function excludedPaths(call: unknown[]): string[] {
 describe('unstaged line stats with a file another process holds open', () => {
   beforeEach(() => {
     gitExecFileAsyncMock.mockReset()
+    clearRememberedUnreadableNumstatPaths()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('reads the locked path from Git stderr', () => {
@@ -112,5 +122,57 @@ describe('unstaged line stats with a file another process holds open', () => {
 
     expect(complete).toBe(false)
     expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts the next poll with the remembered exclusion while the file stays locked', async () => {
+    gitExecFileAsyncMock
+      .mockRejectedValueOnce(cannotHash(LOCKED))
+      .mockResolvedValue({ stdout: '3\t1\tsrc/a.ts\0', stderr: '' })
+    await attachLineStats(WORKTREE, [unstaged('src/a.ts'), unstaged(LOCKED)])
+    gitExecFileAsyncMock.mockClear()
+
+    const entries = [unstaged('src/a.ts'), unstaged(LOCKED)]
+    const complete = await attachLineStats(WORKTREE, entries)
+
+    expect(complete).toBe(false)
+    expect(entries[0]).toMatchObject({ added: 3, removed: 1 })
+    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
+    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0])).toEqual([
+      `:(top,exclude,literal)${LOCKED}`
+    ])
+  })
+
+  it('re-probes remembered paths after the line-stats cache TTL so a released file counts', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    gitExecFileAsyncMock
+      .mockRejectedValueOnce(cannotHash(LOCKED))
+      .mockResolvedValue({ stdout: '3\t1\tsrc/a.ts\0', stderr: '' })
+    await attachLineStats(WORKTREE, [unstaged('src/a.ts'), unstaged(LOCKED)])
+    gitExecFileAsyncMock.mockClear()
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: `3\t1\tsrc/a.ts\u00002\t0\t${LOCKED}\u0000`,
+      stderr: ''
+    })
+
+    vi.setSystemTime(GIT_STATUS_LINE_STATS_CACHE_MAX_AGE_MS)
+    const entries = [unstaged('src/a.ts'), unstaged(LOCKED)]
+    const complete = await attachLineStats(WORKTREE, entries)
+
+    expect(complete).toBe(true)
+    expect(entries[1]).toMatchObject({ added: 2, removed: 0 })
+    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0])).toEqual([])
+  })
+
+  it('keeps remembered paths per worktree', async () => {
+    gitExecFileAsyncMock
+      .mockRejectedValueOnce(cannotHash(LOCKED))
+      .mockResolvedValue({ stdout: '', stderr: '' })
+    await attachLineStats(WORKTREE, [unstaged(LOCKED)])
+    gitExecFileAsyncMock.mockClear()
+
+    await attachLineStats('/other', [unstaged('src/a.ts')])
+
+    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0])).toEqual([])
   })
 })
