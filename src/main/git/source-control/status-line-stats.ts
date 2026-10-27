@@ -102,12 +102,13 @@ async function runNumstat(
         throw error
       }
       const unreadablePath = parseUnreadableNumstatPath(extractExecError(error).stderr)
-      if (
-        unreadablePath === null ||
-        excluded.includes(unreadablePath) ||
-        excluded.length >= MAX_UNREADABLE_PATH_EXCLUSIONS
-      ) {
+      if (unreadablePath === null || excluded.includes(unreadablePath)) {
         // null marks the pass incomplete and uncacheable; an empty map would imply success.
+        return null
+      }
+      if (excluded.length >= MAX_UNREADABLE_PATH_EXCLUSIONS) {
+        // Avoid repeating the capped retry sequence on every poll until the original TTL expires.
+        rememberUnreadablePaths(memoryKey, excluded, storedAt)
         return null
       }
       excluded.push(unreadablePath)

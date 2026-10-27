@@ -103,16 +103,66 @@ describe('unstaged line stats with a file another process holds open', () => {
     expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(2)
   })
 
-  it('bounds the retries when many files are locked', async () => {
+  it('remembers capped exclusions until the original TTL expires', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
     let next = 0
     gitExecFileAsyncMock.mockImplementation(async () => {
       throw cannotHash(`locked-${next++}.db`)
     })
+    const entries = [unstaged('src/a.ts'), unstaged('locked-0.db')]
 
-    const complete = await attachLineStats(WORKTREE, [unstaged('src/a.ts')])
+    const complete = await attachLineStats(WORKTREE, entries)
 
     expect(complete).toBe(false)
+    expect(entries[0].added).toBeUndefined()
     expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(9)
+    gitExecFileAsyncMock.mockClear()
+    gitExecFileAsyncMock.mockRejectedValue(cannotHash('locked-8.db'))
+    vi.setSystemTime(GIT_STATUS_LINE_STATS_CACHE_MAX_AGE_MS - 1)
+
+    expect(await attachLineStats(WORKTREE, entries)).toBe(false)
+    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
+    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0][0])).toEqual(
+      Array.from({ length: 8 }, (_, index) => `:(top,exclude,literal)locked-${index}.db`)
+    )
+    gitExecFileAsyncMock.mockClear()
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: '3\t1\tsrc/a.ts\u00002\t0\tlocked-0.db\u0000',
+      stderr: ''
+    })
+    vi.setSystemTime(GIT_STATUS_LINE_STATS_CACHE_MAX_AGE_MS)
+
+    expect(await attachLineStats(WORKTREE, entries)).toBe(true)
+    expect(entries[0]).toMatchObject({ added: 3, removed: 1 })
+    expect(entries[1]).toMatchObject({ added: 2, removed: 0 })
+    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
+    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0][0])).toEqual([])
+  })
+
+  it.each([
+    {
+      name: 'an unrelated Git error',
+      error: Object.assign(new Error('Command failed'), { stderr: 'fatal: bad object HEAD\n' })
+    },
+    { name: 'an already excluded path', error: cannotHash('locked-0.db') }
+  ])('does not remember exclusions when $name stops a pass at the cap', async ({ error }) => {
+    for (let index = 0; index < 8; index++) {
+      gitExecFileAsyncMock.mockRejectedValueOnce(cannotHash(`locked-${index}.db`))
+    }
+    gitExecFileAsyncMock.mockRejectedValueOnce(error)
+    const entries = [unstaged('locked-0.db')]
+
+    expect(await attachLineStats(WORKTREE, entries)).toBe(false)
+    expect(entries[0].added).toBeUndefined()
+    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(9)
+    gitExecFileAsyncMock.mockClear()
+    gitExecFileAsyncMock.mockResolvedValue({ stdout: '2\t0\tlocked-0.db\0', stderr: '' })
+
+    expect(await attachLineStats(WORKTREE, entries)).toBe(true)
+    expect(entries[0]).toMatchObject({ added: 2, removed: 0 })
+    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
+    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0][0])).toEqual([])
   })
 
   it('does not retry other numstat failures', async () => {
