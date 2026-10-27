@@ -21,10 +21,12 @@ import { GIT_STATUS_LINE_STATS_CACHE_MAX_AGE_MS } from '../../shared/git-status-
 const WORKTREE = '/repo'
 const LOCKED = 'data/app state.json'
 
+/** Supply a modified row to trigger the unstaged numstat pass. */
 function unstaged(entryPath: string): GitStatusEntry {
   return { path: entryPath, area: 'unstaged', status: 'modified' }
 }
 
+/** Reproduce Git's sharing-violation stderr so retries exercise the real error parser. */
 function cannotHash(entryPath: string): Error {
   return Object.assign(new Error('Command failed: git diff'), {
     stdout: '',
@@ -32,8 +34,8 @@ function cannotHash(entryPath: string): Error {
   })
 }
 
-function excludedPaths(call: unknown[]): string[] {
-  const argv = call[0] as string[]
+/** Inspect literal exclusions without coupling assertions to unrelated Git options. */
+function excludedPaths(argv: string[]): string[] {
   return argv.filter((arg) => arg.startsWith(':(top,exclude,literal)'))
 }
 
@@ -68,8 +70,8 @@ describe('unstaged line stats with a file another process holds open', () => {
     expect(entries[0]).toMatchObject({ added: 3, removed: 1 })
     expect(entries[1].added).toBeUndefined()
     expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(2)
-    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0])).toEqual([])
-    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[1])).toEqual([
+    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0][0])).toEqual([])
+    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[1][0])).toEqual([
       `:(top,exclude,literal)${LOCKED}`
     ])
   })
@@ -84,7 +86,7 @@ describe('unstaged line stats with a file another process holds open', () => {
     await attachLineStats(WORKTREE, entries)
 
     expect(entries[0]).toMatchObject({ added: 1, removed: 0 })
-    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[2])).toEqual([
+    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[2][0])).toEqual([
       ':(top,exclude,literal)a.db',
       ':(top,exclude,literal)b.log'
     ])
@@ -137,7 +139,7 @@ describe('unstaged line stats with a file another process holds open', () => {
     expect(complete).toBe(false)
     expect(entries[0]).toMatchObject({ added: 3, removed: 1 })
     expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(1)
-    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0])).toEqual([
+    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0][0])).toEqual([
       `:(top,exclude,literal)${LOCKED}`
     ])
   })
@@ -161,7 +163,7 @@ describe('unstaged line stats with a file another process holds open', () => {
 
     expect(complete).toBe(true)
     expect(entries[1]).toMatchObject({ added: 2, removed: 0 })
-    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0])).toEqual([])
+    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0][0])).toEqual([])
   })
 
   it('keeps remembered paths per worktree', async () => {
@@ -173,6 +175,6 @@ describe('unstaged line stats with a file another process holds open', () => {
 
     await attachLineStats('/other', [unstaged('src/a.ts')])
 
-    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0])).toEqual([])
+    expect(excludedPaths(gitExecFileAsyncMock.mock.calls[0][0])).toEqual([])
   })
 })

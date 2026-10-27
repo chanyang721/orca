@@ -33,6 +33,7 @@ export function clearRememberedUnreadableNumstatPaths(): void {
   rememberedUnreadablePaths.clear()
 }
 
+/** Reuse exclusions without extending their TTL, so released paths are eventually retried. */
 function recallUnreadablePaths(key: string, now: number): { paths: string[]; storedAt: number } {
   const remembered = rememberedUnreadablePaths.get(key)
   if (!remembered || now - remembered.storedAt >= UNREADABLE_PATH_MEMORY_MS) {
@@ -42,6 +43,7 @@ function recallUnreadablePaths(key: string, now: number): { paths: string[]; sto
   return { paths: [...remembered.paths], storedAt: remembered.storedAt }
 }
 
+/** Bound exclusion memory across worktrees while preserving the original re-probe deadline. */
 function rememberUnreadablePaths(key: string, paths: string[], storedAt: number): void {
   rememberedUnreadablePaths.delete(key)
   if (paths.length === 0) {
@@ -56,10 +58,12 @@ function rememberUnreadablePaths(key: string, paths: string[], storedAt: number)
   }
 }
 
+/** Extract the root-relative path from Git's cannot-hash failure, or null for other errors. */
 export function parseUnreadableNumstatPath(stderr: string): string | null {
   return UNREADABLE_PATH_PATTERN.exec(stderr)?.[1]?.trimEnd() || null
 }
 
+/** Keep readable rows by excluding unreadable paths, marking partial passes incomplete. */
 async function runNumstat(
   worktreePath: string,
   cached: boolean,
@@ -111,7 +115,7 @@ async function runNumstat(
   }
 }
 
-/** Returns false when a numstat pass failed, so callers skip caching it. */
+/** Returns false when a numstat pass failed or excluded paths, so callers skip caching it. */
 export async function attachLineStats(
   worktreePath: string,
   entries: GitStatusEntry[],
