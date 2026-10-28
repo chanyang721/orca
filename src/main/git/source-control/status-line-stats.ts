@@ -70,7 +70,7 @@ async function runNumstat(
   options: GitRuntimeOptions = {}
 ): Promise<NumstatPass | null> {
   const memoryKey = `${cached ? 'cached' : 'worktree'}:${worktreePath}`
-  const { paths: excluded, storedAt } = recallUnreadablePaths(memoryKey, Date.now())
+  const { paths: excluded, storedAt } = recallUnreadablePaths(memoryKey, performance.now())
   for (;;) {
     try {
       const { stdout } = await gitExecFileAsync(
